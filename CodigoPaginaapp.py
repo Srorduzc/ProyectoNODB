@@ -1,35 +1,26 @@
 import streamlit as st
 from pymongo import MongoClient
 import os
+from dotenv import load_dotenv
 
 # -----------------------------
-# CONFIGURACIÓN URI (local + cloud)
+# Configuración
 # -----------------------------
-try:
-    URI = st.secrets["MONGO_URI"]  # Streamlit Cloud
-except:
-    URI = os.getenv("MONGO_URI")   # Local (.env)
+load_dotenv()
+URI = os.getenv("MONGO_URI")
 
 if not URI:
-    st.error("No se encontró MONGO_URI")
+    st.error("Falta configurar MONGO_URI en .env")
     st.stop()
 
-# -----------------------------
-# CONEXIÓN A MONGO
-# -----------------------------
-try:
-    client = MongoClient(URI, serverSelectionTimeoutMS=5000)
-    client.server_info()
-except Exception as e:
-    st.error(f"Error de conexión: {e}")
-    st.stop()
-
+client = MongoClient(URI, serverSelectionTimeoutMS=5000)
 db = client["videojuegos_terror"]
+
 coleccion_juegos = db["juegos"]
 coleccion_resenas = db["resenas"]
 
 # -----------------------------
-# FUNCIONES
+# Funciones
 # -----------------------------
 def extraer_keywords(texto):
     palabras = ["miedo", "historia", "oscuridad", "monstruos", "tension"]
@@ -71,14 +62,14 @@ def recomendar(usuario):
     resultados.sort(key=lambda x: x[1], reverse=True)
     return resultados
 
+
 # -----------------------------
-# INTERFAZ
+# UI
 # -----------------------------
 st.set_page_config(page_title="🎮 Juegos de Terror", layout="centered")
 
 st.title("🎮 Sistema de Reseñas de Terror")
 
-# 🔴 IMPORTANTE: definir menú antes de usarlo
 menu = st.sidebar.selectbox("Menú", [
     "Agregar Juego",
     "Agregar Reseña",
@@ -86,39 +77,24 @@ menu = st.sidebar.selectbox("Menú", [
 ])
 
 # -----------------------------
-# AGREGAR JUEGO
+# Agregar Juego
 # -----------------------------
 if menu == "Agregar Juego":
     st.subheader("Nuevo Juego")
 
     nombre = st.text_input("Nombre del juego")
     anio = st.number_input("Año", min_value=2000, max_value=2030)
-
-    opciones_base = [
-        "miedo",
-        "historia",
-        "oscuridad",
-        "monstruos",
-        "tension"
-    ]
-
-    seleccion = st.multiselect("Descripción del juego", opciones_base)
-    nueva_desc = st.text_input("Agregar otra descripción (opcional)")
+    tags = st.text_input("Tags (separados por coma)")
 
     if st.button("Guardar Juego"):
         if nombre:
-            descripcion_final = [d.lower().strip() for d in seleccion]
-
-            if nueva_desc:
-                descripcion_final.append(nueva_desc.lower().strip())
-
-            descripcion_final = list(set(descripcion_final))
+            lista_tags = [t.strip() for t in tags.split(",") if t.strip()]
 
             juego = {
                 "nombre": nombre,
                 "genero": "terror",
                 "anio": int(anio),
-                "tags": descripcion_final
+                "tags": lista_tags
             }
 
             coleccion_juegos.update_one(
@@ -127,12 +103,12 @@ if menu == "Agregar Juego":
                 upsert=True
             )
 
-            st.success("Juego guardado correctamente")
+            st.success("Juego guardado")
         else:
-            st.error("Falta el nombre del juego")
+            st.error("Falta nombre")
 
 # -----------------------------
-# AGREGAR RESEÑA
+# Agregar Reseña
 # -----------------------------
 elif menu == "Agregar Reseña":
     st.subheader("Nueva Reseña")
@@ -155,7 +131,7 @@ elif menu == "Agregar Reseña":
             st.error("Completa los campos")
 
 # -----------------------------
-# RECOMENDACIONES
+# Recomendaciones
 # -----------------------------
 elif menu == "Ver Recomendaciones":
     st.subheader("Recomendaciones")
@@ -171,7 +147,6 @@ elif menu == "Ver Recomendaciones":
             st.write(perfil if perfil else "Sin datos")
 
             st.write("### Juegos recomendados")
-
             if resultados:
                 for nombre, score in resultados:
                     st.write(f"🎮 {nombre} — Puntaje: {score}")
