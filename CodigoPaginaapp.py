@@ -84,17 +84,28 @@ if menu == "Agregar Juego":
 
     nombre = st.text_input("Nombre del juego")
     anio = st.number_input("Año", min_value=2000, max_value=2030)
-    tags = st.text_input("Tags (separados por coma)")
+
+    # 🔥 NUEVO: selección en vez de escritura
+    opciones_descripcion = [
+        "miedo",
+        "historia",
+        "oscuridad",
+        "monstruos",
+        "tension"
+    ]
+
+    descripcion = st.multiselect("Descripción del juego", opciones_descripcion)
 
     if st.button("Guardar Juego"):
         if nombre:
-            lista_tags = [t.strip() for t in tags.split(",") if t.strip()]
+            # normalizar datos
+            lista_tags = [d.lower().strip() for d in descripcion]
 
             juego = {
                 "nombre": nombre,
                 "genero": "terror",
                 "anio": int(anio),
-                "tags": lista_tags
+                "tags": lista_tags  # 👈 se mantiene "tags" internamente
             }
 
             coleccion_juegos.update_one(
