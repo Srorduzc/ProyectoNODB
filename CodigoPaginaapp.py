@@ -1,78 +1,35 @@
-# Instalar dependencias
-!pip install flask pymongo
-
 from flask import Flask, request, jsonify
 from pymongo import MongoClient
-import threading
+import os
+from dotenv import load_dotenv
 
-# 🔗 PON TU URI REAL
-URI = "mongodb+srv://USUARIO:CONTRASEÑA@proyectonodb.rhyoteu.mongodb.net/?retryWrites=true&w=majority"
+# -----------------------------
+# Config
+# -----------------------------
+load_dotenv()
+URI = os.getenv("MONGO_URI")
 
-client = MongoClient(URI)
+if not URI:
+    raise ValueError("Falta MONGO_URI en .env")
+
+client = MongoClient(URI, serverSelectionTimeoutMS=5000)
+
+try:
+    client.server_info()
+    print("Conectado a MongoDB")
+except Exception as e:
+    print("Error de conexión:", e)
+
 db = client["videojuegos_terror"]
 
 app = Flask(__name__)
 
 # -----------------------------
-# HTML
+# Home
 # -----------------------------
 @app.route("/")
 def home():
-    return """
-    <html>
-    <head>
-        <title>Juegos de Terror</title>
-        <style>
-            body { background:#0d0d0d; color:white; font-family:Arial; }
-            h1 { color:red; }
-            input, textarea { width:300px; margin:5px; padding:8px; }
-            button { background:red; color:white; padding:10px; border:none; }
-        </style>
-    </head>
-    <body>
-        <h1>🎮 Juegos de Terror</h1>
-
-        <h3>Agregar Reseña</h3>
-        <input id="usuario" placeholder="Usuario"><br>
-        <input id="juego" placeholder="Juego"><br>
-        <textarea id="texto" placeholder="Reseña"></textarea><br>
-        <button onclick="enviar()">Enviar</button>
-
-        <h3>Recomendaciones</h3>
-        <button onclick="recomendar()">Ver recomendaciones</button>
-        <ul id="lista"></ul>
-
-        <script>
-        function enviar(){
-            fetch('/resena', {
-                method:'POST',
-                headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({
-                    usuario:document.getElementById('usuario').value,
-                    juego:document.getElementById('juego').value,
-                    texto:document.getElementById('texto').value
-                })
-            }).then(r=>r.json()).then(d=>alert(d.msg))
-        }
-
-        function recomendar(){
-            let usuario = document.getElementById('usuario').value
-            fetch('/recomendar?usuario='+usuario)
-            .then(r=>r.json())
-            .then(data=>{
-                let lista = document.getElementById('lista')
-                lista.innerHTML=""
-                data.forEach(j=>{
-                    let li=document.createElement('li')
-                    li.innerText=j
-                    lista.appendChild(li)
-                })
-            })
-        }
-        </script>
-    </body>
-    </html>
-    """
+    return {"msg": "API funcionando"}
 
 # -----------------------------
 # Guardar reseña
@@ -80,45 +37,55 @@ def home():
 @app.route("/resena", methods=["POST"])
 def guardar_resena():
     data = request.json
+
+    # Validación mínima (antes no tenías nada)
+    if not data or "usuario" not in data or "texto" not in data:
+        return jsonify({"error": "Datos incompletos"}), 400
+
     db.resenas.insert_one(data)
     return jsonify({"msg": "Reseña guardada"})
 
 # -----------------------------
-# Recomendación simple
+# Recomendaciones
 # -----------------------------
 @app.route("/recomendar")
 def recomendar():
     usuario = request.args.get("usuario")
+
+    if not usuario:
+        return jsonify({"error": "Falta usuario"}), 400
+
     resenas = list(db.resenas.find({"usuario": usuario}))
 
-    palabras = ["miedo","historia","oscuridad","monstruos"]
+    palabras = ["miedo", "historia", "oscuridad", "monstruos"]
     perfil = {}
 
     for r in resenas:
+        texto = r.get("texto", "").lower()
         for p in palabras:
-            if p in r["texto"].lower():
-                perfil[p] = perfil.get(p,0)+1
+            if p in texto:
+                perfil[p] = perfil.get(p, 0) + 1
 
     juegos = list(db.juegos.find())
     resultado = []
 
     for j in juegos:
         score = 0
-        for tag in j.get("tags",[]):
+        for tag in j.get("tags", []):
             if tag in perfil:
                 score += perfil[tag]
-        resultado.append((j["nombre"],score))
 
-    resultado.sort(key=lambda x:x[1], reverse=True)
+        resultado.append({
+            "nombre": j.get("nombre", "Sin nombre"),
+            "puntaje": score
+        })
 
-    return jsonify([r[0] for r in resultado])
+    resultado.sort(key=lambda x: x["puntaje"], reverse=True)
+
+    return jsonify(resultado)
 
 # -----------------------------
-# Ejecutar en segundo plano
+# Run
 # -----------------------------
-def run_app():
-    app.run(port=5000)
-
-threading.Thread(target=run_app).start()
-
-print("Servidor corriendo en Colab (puerto 5000)")
+if __name__ == "__main__":
+    app.run(debug=True)
