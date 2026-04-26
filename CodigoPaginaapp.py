@@ -1,91 +1,156 @@
-from flask import Flask, request, jsonify
+import streamlit as st
 from pymongo import MongoClient
 import os
 from dotenv import load_dotenv
 
 # -----------------------------
-# Config
+# Configuración
 # -----------------------------
 load_dotenv()
 URI = os.getenv("MONGO_URI")
 
 if not URI:
-    raise ValueError("Falta MONGO_URI en .env")
+    st.error("Falta configurar MONGO_URI en .env")
+    st.stop()
 
 client = MongoClient(URI, serverSelectionTimeoutMS=5000)
-
-try:
-    client.server_info()
-    print("Conectado a MongoDB")
-except Exception as e:
-    print("Error de conexión:", e)
-
 db = client["videojuegos_terror"]
 
-app = Flask(__name__)
+coleccion_juegos = db["juegos"]
+coleccion_resenas = db["resenas"]
 
 # -----------------------------
-# Home
+# Funciones
 # -----------------------------
-@app.route("/")
-def home():
-    return {"msg": "API funcionando"}
+def extraer_keywords(texto):
+    palabras = ["miedo", "historia", "oscuridad", "monstruos", "tension"]
+    score = {}
+
+    for p in palabras:
+        if p in texto.lower():
+            score[p] = score.get(p, 0) + 1
+
+    return score
+
+
+def perfil_usuario(usuario):
+    perfil = {}
+    resenas = coleccion_resenas.find({"usuario": usuario})
+
+    for r in resenas:
+        keywords = extraer_keywords(r.get("texto", ""))
+        for k, v in keywords.items():
+            perfil[k] = perfil.get(k, 0) + v
+
+    return perfil
+
+
+def recomendar(usuario):
+    perfil = perfil_usuario(usuario)
+    juegos = coleccion_juegos.find()
+
+    resultados = []
+
+    for juego in juegos:
+        puntaje = 0
+        for tag in juego.get("tags", []):
+            if tag in perfil:
+                puntaje += perfil[tag]
+
+        resultados.append((juego.get("nombre", "Sin nombre"), puntaje))
+
+    resultados.sort(key=lambda x: x[1], reverse=True)
+    return resultados
+
 
 # -----------------------------
-# Guardar reseña
+# UI
 # -----------------------------
-@app.route("/resena", methods=["POST"])
-def guardar_resena():
-    data = request.json
+st.set_page_config(page_title="🎮 Juegos de Terror", layout="centered")
 
-    # Validación mínima (antes no tenías nada)
-    if not data or "usuario" not in data or "texto" not in data:
-        return jsonify({"error": "Datos incompletos"}), 400
+st.title("🎮 Sistema de Reseñas de Terror")
 
-    db.resenas.insert_one(data)
-    return jsonify({"msg": "Reseña guardada"})
+menu = st.sidebar.selectbox("Menú", [
+    "Agregar Juego",
+    "Agregar Reseña",
+    "Ver Recomendaciones"
+])
+
+# -----------------------------
+# Agregar Juego
+# -----------------------------
+if menu == "Agregar Juego":
+    st.subheader("Nuevo Juego")
+
+    nombre = st.text_input("Nombre del juego")
+    anio = st.number_input("Año", min_value=2000, max_value=2030)
+    tags = st.text_input("Tags (separados por coma)")
+
+    if st.button("Guardar Juego"):
+        if nombre:
+            lista_tags = [t.strip() for t in tags.split(",") if t.strip()]
+
+            juego = {
+                "nombre": nombre,
+                "genero": "terror",
+                "anio": int(anio),
+                "tags": lista_tags
+            }
+
+            coleccion_juegos.update_one(
+                {"nombre": nombre},
+                {"$set": juego},
+                upsert=True
+            )
+
+            st.success("Juego guardado")
+        else:
+            st.error("Falta nombre")
+
+# -----------------------------
+# Agregar Reseña
+# -----------------------------
+elif menu == "Agregar Reseña":
+    st.subheader("Nueva Reseña")
+
+    usuario = st.text_input("Usuario")
+    juego = st.text_input("Juego")
+    texto = st.text_area("Escribe tu reseña")
+
+    if st.button("Guardar Reseña"):
+        if usuario and texto:
+            resena = {
+                "usuario": usuario,
+                "juego": juego,
+                "texto": texto
+            }
+
+            coleccion_resenas.insert_one(resena)
+            st.success("Reseña guardada")
+        else:
+            st.error("Completa los campos")
 
 # -----------------------------
 # Recomendaciones
 # -----------------------------
-@app.route("/recomendar")
-def recomendar():
-    usuario = request.args.get("usuario")
+elif menu == "Ver Recomendaciones":
+    st.subheader("Recomendaciones")
 
-    if not usuario:
-        return jsonify({"error": "Falta usuario"}), 400
+    usuario = st.text_input("Usuario")
 
-    resenas = list(db.resenas.find({"usuario": usuario}))
+    if st.button("Buscar"):
+        if usuario:
+            perfil = perfil_usuario(usuario)
+            resultados = recomendar(usuario)
 
-    palabras = ["miedo", "historia", "oscuridad", "monstruos"]
-    perfil = {}
+            st.write("### Perfil del usuario")
+            st.write(perfil if perfil else "Sin datos")
 
-    for r in resenas:
-        texto = r.get("texto", "").lower()
-        for p in palabras:
-            if p in texto:
-                perfil[p] = perfil.get(p, 0) + 1
-
-    juegos = list(db.juegos.find())
-    resultado = []
-
-    for j in juegos:
-        score = 0
-        for tag in j.get("tags", []):
-            if tag in perfil:
-                score += perfil[tag]
-
-        resultado.append({
-            "nombre": j.get("nombre", "Sin nombre"),
-            "puntaje": score
-        })
-
-    resultado.sort(key=lambda x: x["puntaje"], reverse=True)
-
-    return jsonify(resultado)
-
-# -----------------------------
-# Run
-# -----------------------------
-if __name__ == "__main__":
-    app.run(debug=True)
+            st.write("### Juegos recomendados")
+            if resultados:
+                for nombre, score in resultados:
+                    st.write(f"🎮 {nombre} — Puntaje: {score}")
+            else:
+                st.warning("No hay resultados")
+        else:
+            st.error("Ingresa un usuario")
