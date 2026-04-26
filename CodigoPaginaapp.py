@@ -4,15 +4,6 @@ import os
 from dotenv import load_dotenv
 
 
-URI = st.secrets["MONGO_URI"]
-
-try:
-    client = MongoClient(URI, serverSelectionTimeoutMS=5000)
-    client.server_info()
-    st.success("Conectado correctamente")
-except Exception as e:
-    st.error(f"Error: {e}")
-
 # -----------------------------
 # Configuración
 # -----------------------------
