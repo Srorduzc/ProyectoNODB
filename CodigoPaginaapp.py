@@ -3,7 +3,7 @@ from pymongo import MongoClient
 import os
 
 # -----------------------------
-# CONFIG
+# CONFIGURACIÓN
 # -----------------------------
 try:
     URI = st.secrets["MONGO_URI"]
@@ -14,6 +14,9 @@ if not URI:
     st.error("❌ No se encontró MONGO_URI")
     st.stop()
 
+# -----------------------------
+# CONEXIÓN
+# -----------------------------
 @st.cache_resource
 def conectar():
     client = MongoClient(URI, serverSelectionTimeoutMS=5000)
@@ -27,51 +30,72 @@ coleccion_juegos = db["juegos"]
 coleccion_resenas = db["resenas"]
 
 # -----------------------------
-# ESTADO
+# UI CONFIG
 # -----------------------------
-if "pagina" not in st.session_state:
-    st.session_state.pagina = "inicio"
+st.set_page_config(page_title="🎮 Juegos de Terror", layout="centered")
 
-if "juego" not in st.session_state:
-    st.session_state.juego = None
-
-# -----------------------------
-# ESTILO STEAM
-# -----------------------------
+# 🎨 ESTILO CLARO (AQUÍ VA)
 st.markdown("""
 <style>
+
+/* Fondo */
 .stApp {
-    background-color: #0b0f19;
-    color: white;
+    background-color: #f5f7fb;
+    color: #1f2937;
 }
 
+/* Títulos */
+h1, h2, h3 {
+    color: #111827;
+}
+
+/* Cards */
 .card {
-    background-color: #1b2838;
-    padding: 15px;
+    background-color: white;
+    padding: 16px;
     border-radius: 12px;
-    margin: 10px;
-    transition: 0.3s;
+    margin: 10px 0;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+    transition: 0.2s;
 }
 
 .card:hover {
-    transform: scale(1.03);
-    background-color: #2a475e;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 18px rgba(0,0,0,0.08);
 }
 
-.titulo {
-    font-size: 18px;
-    font-weight: bold;
-}
-
-.precio {
-    color: #66c0f4;
-}
-
+/* Botones */
 .stButton>button {
-    background-color: #66c0f4;
-    color: black;
+    background-color: #2563eb;
+    color: white;
     border-radius: 8px;
+    border: none;
+    padding: 8px 14px;
 }
+
+.stButton>button:hover {
+    background-color: #1d4ed8;
+}
+
+/* Inputs */
+input, textarea {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+    border: 1px solid #d1d5db !important;
+    border-radius: 6px;
+}
+
+/* Sidebar */
+section[data-testid="stSidebar"] {
+    background-color: #ffffff;
+    border-right: 1px solid #e5e7eb;
+}
+
+/* Texto secundario */
+.muted {
+    color: #6b7280;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -96,8 +120,8 @@ def perfil_usuario(usuario):
     resenas = coleccion_resenas.find({"usuario": usuario})
 
     for r in resenas:
-        kw = extraer_keywords(r.get("texto", ""))
-        for k, v in kw.items():
+        keywords = extraer_keywords(r.get("texto", ""))
+        for k, v in keywords.items():
             perfil[k] = perfil.get(k, 0) + v
 
     return perfil
@@ -109,49 +133,39 @@ def recomendar(usuario):
 
     resultados = []
 
-    for j in juegos:
-        nombre = j.get("nombre")
-        if not nombre:
-            continue
-
-        score = 0
-        for tag in j.get("tags", []):
+    for juego in juegos:
+        puntaje = 0
+        for tag in juego.get("tags", []):
             if tag in perfil:
-                score += perfil[tag]
+                puntaje += perfil[tag]
 
-        resultados.append((nombre, score))
+        resultados.append((juego.get("nombre", "Sin nombre"), puntaje))
 
-    return sorted(resultados, key=lambda x: x[1], reverse=True)
-
-# -----------------------------
-# HEADER
-# -----------------------------
-st.title("🎮 Steam Terror")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    if st.button("🏠 Inicio"):
-        st.session_state.pagina = "inicio"
-
-with col2:
-    if st.button("👤 Perfil"):
-        st.session_state.pagina = "perfil"
+    resultados.sort(key=lambda x: x[1], reverse=True)
+    return resultados
 
 # -----------------------------
-# INICIO (CATÁLOGO)
+# UI
 # -----------------------------
-if st.session_state.pagina == "inicio":
+st.title("🎮 Sistema de Reseñas de Terror")
 
-    st.subheader("🔥 Catálogo")
+menu = st.sidebar.selectbox("Menú", [
+    "Lista de Juegos",
+    "Agregar Reseña",
+    "Perfil"
+])
+
+# -----------------------------
+# LISTA DE JUEGOS
+# -----------------------------
+if menu == "Lista de Juegos":
+
+    st.subheader("🎮 Catálogo")
 
     busqueda = st.text_input("🔍 Buscar juego")
 
     juegos = list(coleccion_juegos.find())
 
-    cols = st.columns(3)  # GRID
-
-    i = 0
     for j in juegos:
         nombre = j.get("nombre")
         _id = str(j.get("_id"))
@@ -159,91 +173,86 @@ if st.session_state.pagina == "inicio":
         if not nombre:
             continue
 
-        if busqueda.lower() not in nombre.lower():
-            continue
+        if busqueda.lower() in nombre.lower():
 
-        with cols[i % 3]:
-            st.markdown(f"""
-            <div class="card">
-                <img src="https://via.placeholder.com/300x150" width="100%">
-                <div class="titulo">{nombre}</div>
-                <div class="precio">🎮 Terror</div>
-            </div>
-            """, unsafe_allow_html=True)
+            col1, col2 = st.columns([4,1])
 
-            if st.button("Ver / Reseñar", key=f"btn_{_id}"):
-                st.session_state.juego = nombre
-                st.session_state.pagina = "detalle"
+            with col1:
+                st.markdown(f"""
+                <div class="card">
+                    <div style="font-size:18px; font-weight:600;">🎮 {nombre}</div>
+                    <div class="muted">Juego de terror</div>
+                </div>
+                """, unsafe_allow_html=True)
 
-        i += 1
+            with col2:
+                if st.button("Reseñar", key=f"resena_{_id}"):
+                    st.session_state.juego = nombre
+                    st.session_state.menu = "Agregar Reseña"
 
 # -----------------------------
-# DETALLE DEL JUEGO
+# AGREGAR RESEÑA
 # -----------------------------
-elif st.session_state.pagina == "detalle":
+elif menu == "Agregar Reseña":
 
-    juego = st.session_state.juego
-
-    st.subheader(f"🎮 {juego}")
+    st.subheader("✍️ Nueva Reseña")
 
     usuario = st.text_input("Usuario")
+
+    juegos_disponibles = [j.get("nombre") for j in coleccion_juegos.find() if j.get("nombre")]
+
+    juego = st.selectbox("Selecciona juego", juegos_disponibles)
+
     texto = st.text_area("Escribe tu reseña")
+
     rating = st.slider("⭐ Calificación", 1, 5, 3)
 
     if st.button("Guardar Reseña"):
-        if usuario and texto:
-            coleccion_resenas.insert_one({
+        if usuario and texto and juego:
+
+            existe = coleccion_resenas.find_one({
                 "usuario": usuario,
-                "juego": juego,
-                "texto": texto,
-                "rating": rating
+                "juego": juego
             })
-            st.success("✅ Reseña guardada")
+
+            if existe:
+                st.warning("⚠️ Ya reseñaste este juego")
+            else:
+                coleccion_resenas.insert_one({
+                    "usuario": usuario,
+                    "juego": juego,
+                    "texto": texto,
+                    "rating": rating
+                })
+                st.success("✅ Reseña guardada")
         else:
-            st.error("Completa los campos")
-
-    # Mostrar reseñas
-    st.write("### 📝 Reseñas")
-
-    resenas = coleccion_resenas.find({"juego": juego})
-
-    for r in resenas:
-        st.markdown(f"""
-        <div class="card">
-        👤 {r.get("usuario")} <br>
-        ⭐ {r.get("rating", "N/A")} <br>
-        {r.get("texto")}
-        </div>
-        """, unsafe_allow_html=True)
-
-    if st.button("⬅ Volver"):
-        st.session_state.pagina = "inicio"
+            st.error("Completa todos los campos")
 
 # -----------------------------
 # PERFIL
 # -----------------------------
-elif st.session_state.pagina == "perfil":
+elif menu == "Perfil":
 
-    usuario = st.text_input("Ingresa tu usuario")
+    usuario = st.text_input("Usuario")
 
     if usuario:
 
         st.write("### 📝 Tus reseñas")
 
-        resenas = list(coleccion_resenas.find({"usuario": usuario}))
+        resenas = coleccion_resenas.find({"usuario": usuario})
 
         for r in resenas:
             st.markdown(f"""
             <div class="card">
-            🎮 {r.get("juego")} <br>
-            ⭐ {r.get("rating", "N/A")} <br>
-            {r.get("texto")}
+                🎮 <b>{r.get("juego")}</b><br>
+                ⭐ {r.get("rating", "N/A")}<br>
+                {r.get("texto")}
             </div>
             """, unsafe_allow_html=True)
 
-        st.write("### 🔥 Recomendaciones")
+        st.write("### 🎯 Recomendaciones")
 
-        recs = recomendar(usuario)
+        resultados = recomendar(usuario)
 
-        for nombre, score in recs[:5]:
+        for nombre, score in resultados[:5]:
             st.write(f"🎮 {nombre} — {score}")
