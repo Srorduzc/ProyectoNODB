@@ -77,12 +77,16 @@ def recomendar(usuario):
     resultados = []
 
     for juego in juegos:
+        nombre = juego.get("nombre")
+        if not nombre:
+            continue
+
         puntaje = 0
         for tag in juego.get("tags", []):
             if tag in perfil:
                 puntaje += perfil[tag]
 
-        resultados.append((juego.get("nombre", "Sin nombre"), puntaje))
+        resultados.append((nombre, puntaje))
 
     resultados.sort(key=lambda x: x[1], reverse=True)
     return resultados
@@ -120,7 +124,12 @@ if st.session_state.pagina == "inicio":
     juegos = list(coleccion_juegos.find())
 
     for j in juegos:
-        nombre = j.get("nombre", "")
+        nombre = j.get("nombre")
+        _id = str(j.get("_id"))
+
+        # 🔥 FILTRO IMPORTANTE
+        if not nombre:
+            continue
 
         if busqueda.lower() in nombre.lower():
 
@@ -130,7 +139,8 @@ if st.session_state.pagina == "inicio":
                 st.write(f"🎮 {nombre}")
 
             with col2:
-                if st.button("Reseñar", key=nombre):
+                # 🔥 KEY SEGURA
+                if st.button("Reseñar", key=f"resena_{_id}"):
                     st.session_state.juego_seleccionado = nombre
                     st.session_state.pagina = "resena"
 
