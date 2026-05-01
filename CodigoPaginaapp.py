@@ -3,25 +3,25 @@ from pymongo import MongoClient
 import os
 
 # -----------------------------
-# CONFIGURACIÓN (CORRECTA)
+# CONFIGURACIÓN
 # -----------------------------
 try:
-    URI = st.secrets["MONGO_URI"]  # Streamlit Cloud
+    URI = st.secrets["MONGO_URI"]
 except:
-    URI = os.getenv("MONGO_URI")   # Local
+    URI = os.getenv("MONGO_URI")
 
 if not URI:
     st.error("❌ No se encontró MONGO_URI")
     st.stop()
 
 # -----------------------------
-# CONEXIÓN (CACHEADA)
+# CONEXIÓN
 # -----------------------------
 @st.cache_resource
 def conectar():
     try:
         client = MongoClient(URI, serverSelectionTimeoutMS=5000)
-        client.admin.command("ping")  # prueba real
+        client.admin.command("ping")
         return client
     except Exception as e:
         st.error(f"❌ Error de conexión: {e}")
@@ -32,6 +32,15 @@ db = client["videojuegos_terror"]
 
 coleccion_juegos = db["juegos"]
 coleccion_resenas = db["resenas"]
+
+# -----------------------------
+# ESTADO
+# -----------------------------
+if "pagina" not in st.session_state:
+    st.session_state.pagina = "inicio"
+
+if "juego_seleccionado" not in st.session_state:
+    st.session_state.juego_seleccionado = None
 
 # -----------------------------
 # FUNCIONES
@@ -86,108 +95,108 @@ st.set_page_config(page_title="🎮 Juegos de Terror", layout="centered")
 
 st.title("🎮 Sistema de Reseñas de Terror")
 
-menu = st.sidebar.selectbox("Menú", [
-    "Agregar Juego",
-    "Agregar Reseña",
-    "Ver Recomendaciones"
-])
+# -----------------------------
+# MENÚ SUPERIOR
+# -----------------------------
+col1, col2 = st.columns(2)
+
+with col1:
+    if st.button("🎮 Juegos"):
+        st.session_state.pagina = "inicio"
+
+with col2:
+    if st.button("👤 Perfil"):
+        st.session_state.pagina = "perfil"
 
 # -----------------------------
-# AGREGAR JUEGO
+# PÁGINA: LISTA DE JUEGOS
 # -----------------------------
-if menu == "Agregar Juego":
-    st.subheader("Nuevo Juego")
+if st.session_state.pagina == "inicio":
 
-    nombre = st.text_input("Nombre del juego")
-    anio = st.number_input("Año", min_value=2000, max_value=2030)
+    st.subheader("🎮 Lista de Juegos")
 
-    opciones_descripcion = [
-        "miedo",
-        "historia",
-        "oscuridad",
-        "monstruos",
-        "tension"
-    ]
+    busqueda = st.text_input("Buscar juego")
 
-    descripcion = st.multiselect("Descripción del juego", opciones_descripcion)
+    juegos = list(coleccion_juegos.find())
 
-    if st.button("Guardar Juego"):
-        if nombre:
-            juego = {
-                "nombre": nombre,
-                "genero": "terror",
-                "anio": int(anio),
-                "tags": [d.lower().strip() for d in descripcion]
-            }
+    for j in juegos:
+        nombre = j.get("nombre", "")
 
-            try:
-                coleccion_juegos.update_one(
-                    {"nombre": nombre},
-                    {"$set": juego},
-                    upsert=True
-                )
-                st.success("✅ Juego guardado")
-            except Exception as e:
-                st.error(f"❌ Error guardando juego: {e}")
-        else:
-            st.error("Falta nombre")
+        if busqueda.lower() in nombre.lower():
+
+            col1, col2 = st.columns([3,1])
+
+            with col1:
+                st.write(f"🎮 {nombre}")
+
+            with col2:
+                if st.button("Reseñar", key=nombre):
+                    st.session_state.juego_seleccionado = nombre
+                    st.session_state.pagina = "resena"
 
 # -----------------------------
-# AGREGAR RESEÑA
+# PÁGINA: RESEÑA
 # -----------------------------
-elif menu == "Agregar Reseña":
-    st.subheader("Nueva Reseña")
+elif st.session_state.pagina == "resena":
+
+    st.subheader("✍️ Nueva Reseña")
+
+    juego = st.session_state.juego_seleccionado
+
+    if not juego:
+        st.warning("No hay juego seleccionado")
+        st.session_state.pagina = "inicio"
+        st.stop()
+
+    st.write(f"Juego: **{juego}**")
 
     usuario = st.text_input("Usuario")
-
-    # 🔥 Selección real de juegos
-    juegos_disponibles = [j["nombre"] for j in coleccion_juegos.find()]
-    
-    if juegos_disponibles:
-        juego = st.selectbox("Selecciona juego", juegos_disponibles)
-    else:
-        st.warning("⚠️ No hay juegos registrados")
-        juego = None
-
     texto = st.text_area("Escribe tu reseña")
 
     if st.button("Guardar Reseña"):
-        if usuario and texto and juego:
-            resena = {
-                "usuario": usuario,
-                "juego": juego,
-                "texto": texto
-            }
-
+        if usuario and texto:
             try:
-                coleccion_resenas.insert_one(resena)
+                coleccion_resenas.insert_one({
+                    "usuario": usuario,
+                    "juego": juego,
+                    "texto": texto
+                })
                 st.success("✅ Reseña guardada")
             except Exception as e:
-                st.error(f"❌ Error guardando reseña: {e}")
+                st.error(f"❌ Error: {e}")
         else:
-            st.error("Completa todos los campos")
+            st.error("Completa los campos")
+
+    if st.button("⬅️ Volver"):
+        st.session_state.pagina = "inicio"
 
 # -----------------------------
-# RECOMENDACIONES
+# PÁGINA: PERFIL
 # -----------------------------
-elif menu == "Ver Recomendaciones":
-    st.subheader("Recomendaciones")
+elif st.session_state.pagina == "perfil":
 
-    usuario = st.text_input("Usuario")
+    st.subheader("👤 Perfil")
 
-    if st.button("Buscar"):
-        if usuario:
-            perfil = perfil_usuario(usuario)
-            resultados = recomendar(usuario)
+    usuario = st.text_input("Ingresa tu usuario")
 
-            st.write("### Perfil del usuario")
-            st.write(perfil if perfil else "Sin datos")
+    if usuario:
 
-            st.write("### Juegos recomendados")
-            if resultados:
-                for nombre, score in resultados:
-                    st.write(f"🎮 {nombre} — Puntaje: {score}")
-            else:
-                st.warning("No hay resultados")
+        resenas = list(coleccion_resenas.find({"usuario": usuario}))
+
+        st.write("### 📝 Tus reseñas")
+
+        if resenas:
+            for r in resenas:
+                st.write(f"🎮 {r.get('juego')} → {r.get('texto')}")
         else:
-            st.error("Ingresa un usuario")
+            st.warning("No tienes reseñas")
+
+        st.write("### 🎯 Recomendaciones")
+
+        resultados = recomendar(usuario)
+
+        if resultados:
+            for nombre, score in resultados[:5]:
+                st.write(f"🎮 {nombre} — {score}")
+        else:
+            st.warning("Sin recomendaciones")
