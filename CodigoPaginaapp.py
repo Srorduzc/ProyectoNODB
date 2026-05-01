@@ -1,33 +1,49 @@
 import streamlit as st
 from pymongo import MongoClient
 import os
-from dotenv import load_dotenv
 
 # -----------------------------
-# Configuración
+# CONFIGURACIÓN (CORRECTA)
 # -----------------------------
-load_dotenv()
-URI = os.getenv("MONGO_URI")
+try:
+    URI = st.secrets["MONGO_URI"]  # Streamlit Cloud
+except:
+    URI = os.getenv("MONGO_URI")   # Local
 
 if not URI:
-    st.error("Falta configurar MONGO_URI en .env")
+    st.error("❌ No se encontró MONGO_URI")
     st.stop()
 
-client = MongoClient(URI, serverSelectionTimeoutMS=5000)
+# -----------------------------
+# CONEXIÓN (CACHEADA)
+# -----------------------------
+@st.cache_resource
+def conectar():
+    try:
+        client = MongoClient(URI, serverSelectionTimeoutMS=5000)
+        client.admin.command("ping")  # prueba real
+        return client
+    except Exception as e:
+        st.error(f"❌ Error de conexión: {e}")
+        st.stop()
+
+client = conectar()
 db = client["videojuegos_terror"]
 
 coleccion_juegos = db["juegos"]
 coleccion_resenas = db["resenas"]
 
 # -----------------------------
-# Funciones
+# FUNCIONES
 # -----------------------------
 def extraer_keywords(texto):
     palabras = ["miedo", "historia", "oscuridad", "monstruos", "tension"]
     score = {}
 
+    texto = texto.lower()
+
     for p in palabras:
-        if p in texto.lower():
+        if p in texto:
             score[p] = score.get(p, 0) + 1
 
     return score
@@ -77,7 +93,7 @@ menu = st.sidebar.selectbox("Menú", [
 ])
 
 # -----------------------------
-# Agregar Juego
+# AGREGAR JUEGO
 # -----------------------------
 if menu == "Agregar Juego":
     st.subheader("Nuevo Juego")
@@ -85,7 +101,6 @@ if menu == "Agregar Juego":
     nombre = st.text_input("Nombre del juego")
     anio = st.number_input("Año", min_value=2000, max_value=2030)
 
-    # 🔥 NUEVO: selección en vez de escritura
     opciones_descripcion = [
         "miedo",
         "historia",
@@ -98,51 +113,62 @@ if menu == "Agregar Juego":
 
     if st.button("Guardar Juego"):
         if nombre:
-            # normalizar datos
-            lista_tags = [d.lower().strip() for d in descripcion]
-
             juego = {
                 "nombre": nombre,
                 "genero": "terror",
                 "anio": int(anio),
-                "tags": lista_tags  # 👈 se mantiene "tags" internamente
+                "tags": [d.lower().strip() for d in descripcion]
             }
 
-            coleccion_juegos.update_one(
-                {"nombre": nombre},
-                {"$set": juego},
-                upsert=True
-            )
-
-            st.success("Juego guardado")
+            try:
+                coleccion_juegos.update_one(
+                    {"nombre": nombre},
+                    {"$set": juego},
+                    upsert=True
+                )
+                st.success("✅ Juego guardado")
+            except Exception as e:
+                st.error(f"❌ Error guardando juego: {e}")
         else:
             st.error("Falta nombre")
 
 # -----------------------------
-# Agregar Reseña
+# AGREGAR RESEÑA
 # -----------------------------
 elif menu == "Agregar Reseña":
     st.subheader("Nueva Reseña")
 
     usuario = st.text_input("Usuario")
-    juego = st.text_input("Juego")
+
+    # 🔥 Selección real de juegos
+    juegos_disponibles = [j["nombre"] for j in coleccion_juegos.find()]
+    
+    if juegos_disponibles:
+        juego = st.selectbox("Selecciona juego", juegos_disponibles)
+    else:
+        st.warning("⚠️ No hay juegos registrados")
+        juego = None
+
     texto = st.text_area("Escribe tu reseña")
 
     if st.button("Guardar Reseña"):
-        if usuario and texto:
+        if usuario and texto and juego:
             resena = {
                 "usuario": usuario,
                 "juego": juego,
                 "texto": texto
             }
 
-            coleccion_resenas.insert_one(resena)
-            st.success("Reseña guardada")
+            try:
+                coleccion_resenas.insert_one(resena)
+                st.success("✅ Reseña guardada")
+            except Exception as e:
+                st.error(f"❌ Error guardando reseña: {e}")
         else:
-            st.error("Completa los campos")
+            st.error("Completa todos los campos")
 
 # -----------------------------
-# Recomendaciones
+# RECOMENDACIONES
 # -----------------------------
 elif menu == "Ver Recomendaciones":
     st.subheader("Recomendaciones")
